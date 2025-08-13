@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>YT SEO Wizard — Web (Offline)</title>
+  <style>
+    :root{--bg:#0f1220;--card:#171a2b;--muted:#98a2b3;--text:#e6e9ef;--accent:#6ee7ff;}
+    *{box-sizing:border-box;font-family:Inter,system-ui,Segoe UI,Arial;}
+    body{margin:0;background:var(--bg);color:var(--text);}
+    .wrap{max-width:960px;margin:32px auto;padding:16px;}
+    .card{background:var(--card);border-radius:16px;padding:24px;box-shadow:0 10px 30px rgba(0,0,0,.35);}
+    h1{margin:0 0 8px;font-size:32px}
+    p.muted{color:var(--muted);margin-top:0}
+    label{display:block;margin:14px 0 6px;color:#cbd5e1;font-weight:600}
+    textarea,input,select{width:100%;padding:12px 14px;border-radius:12px;border:1px solid #2a2f45;background:#0c0f1c;color:var(--text);}
+    textarea{min-height:120px;resize:vertical}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:14px}
+    button{border:0;border-radius:12px;padding:12px 16px;background:#1c2240;color:white;font-weight:700;cursor:pointer}
+    button.primary{background:linear-gradient(135deg,#00c2ff,#6f9dff)}
+    button.ghost{background:#12162b;border:1px solid #2a2f45}
+    .out{white-space:pre-wrap;background:#0b0e1a;border-radius:12px;padding:16px;border:1px solid #222641}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+    .small{font-size:12px;color:#94a3b8}
+    footer{opacity:.7;margin-top:12px;font-size:12px;text-align:center}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>YT SEO Wizard — Web (Offline)</h1>
+      <p class="muted">Generate YouTube titles, descriptions & tags from a topic or transcript — works fully offline in your browser.</p>
+      <div class="row">
+        <div>
+          <label>Topic</label>
+          <input id="topic" placeholder="e.g. How to stop procrastinating">
+        </div>
+        <div>
+          <label>Brand (optional)</label>
+          <input id="brand" placeholder="Channel or brand name">
+        </div>
+      </div>
+      <label>Transcript (.txt content — optional)</label>
+      <textarea id="transcript" placeholder="Paste transcript text here (optional)"></textarea>
+      <div class="row">
+        <div>
+          <label>Language</label>
+          <select id="lang">
+            <option value="en">English</option>
+            <option value="ru">Русский</option>
+          </select>
+        </div>
+        <div>
+          <label>Clickbait power</label>
+          <input type="range" id="power" min="1" max="5" value="3" oninput="pb.value=this.value">
+          <div class="small">Power: <output id="pb">3</output></div>
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Number of titles</label>
+          <input id="n" type="number" min="5" max="20" value="10">
+        </div>
+        <div>
+          <label>Description length</label>
+          <select id="length">
+            <option value="long">Long (1200–1600)</option>
+            <option value="medium">Medium (900–1200)</option>
+            <option value="short">Short (600–900)</option>
+          </select>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="primary" onclick="generate()">Generate</button>
+        <button class="ghost" onclick="downloadTxt()">Download .TXT</button>
+        <button class="ghost" onclick="downloadJson()">Download .JSON</button>
+        <button class="ghost" onclick="clearAll()">Clear</button>
+      </div>
+      <div class="grid">
+        <div>
+          <h3>Titles</h3>
+          <div id="titles" class="out"></div>
+        </div>
+        <div>
+          <h3>Description & Tags</h3>
+          <div id="desc" class="out"></div>
+        </div>
+      </div>
+      <footer>Works offline • No tracking • Data not sent anywhere</footer>
+    </div>
+  </div>
+<script>
+// === Utility functions (no network) ===
+function cleanText(s){
+  return (s||'').toLowerCase().replace(/[\r\n]+/g,' ')
+    .replace(/[^a-zA-Z0-9а-яА-ЯёЁ\-\' ]+/g,' ')
+    .replace(/\s{2,}/g,' ').trim();
+}
+const STOP_EN = new Set("a an the and or but if then else so of in on at to for with from by is are was were be been being i you he she it we they your our their my mine yours his her its ours theirs this that these those as not do does did done have has had get got getting very can can't cannot will won't should shouldn't would wouldn't could couldn't than vs about into over under out up down off per within without across behind before after during while between".split(' '));
+const STOP_RU = new Set("и а но если то или да нет ни не что это в во на по к ко от из у о об обо без для при над под между через перед после во время тут там где когда как так чтобы тоже лишь уже ещё есть был была было были быть будем будете буду они он она оно мы вы я меня мне тобой тебя вас васом нас наш ваш их ихний твой твоя твоё твои".split(' '));
+function keywordCandidates(text, lang='en', topk=25){
+  const stop = lang==='en'?STOP_EN:STOP_RU;
+  const words = cleanText(text).split(' ').map(w=>w.replace(/^[-']+|[-']+$/g,'')).filter(w=>w && !stop.has(w) && w.length>2);
+  const counts = new Map();
+  for(const w of words){ counts.set(w,(counts.get(w)||0)+1); }
+  // bigrams
+  const big = new Map();
+  for(let i=0;i<words.length-1;i++){
+    const a=words[i], b=words[i+1];
+    if(stop.has(a)||stop.has(b)) continue;
+    const k=a+' '+b; big.set(k,(big.get(k)||0)+1.8);
+  }
+  const scored = new Map(counts);
+  for(const [k,v] of big){ scored.set(k,(scored.get(k)||0)+v); }
+  const arr=[...scored.entries()].sort((a,b)=>b[1]-a[1]).slice(0,topk).map(x=>x[0]);
+  return arr;
+}
+function titleTemplates(power=3, lang='en'){
+  const base_en=[
+    "Stop {pain}: {num} fixes that work",
+    "{num} brutal truths about {topic} no one tells you",
+    "{topic} made simple: a {num}-step plan that actually works",
+    "Beat {pain} in {num} minutes a day",
+    "{topic} — the honest guide (no fluff)",
+    "The method I use to get {result} in {num} days",
+    "Why {topic} isn't what you think",
+    "{num} mistakes keeping you stuck in {pain}",
+  ];
+  const extras=[
+    "I tried {topic} for {num} days — here's the truth",
+    "Do this if you still {pain} ({num}-minute fix)",
+    "Nobody told you this about {topic}",
+  ];
+  const ru=[
+    "Как {pain} убивает твои {goal} — и что делать",
+    "{num} жёстких истин про {topic}, которые никто не говорит",
+    "{topic}: простой план из {num} шагов, который реально работает",
+    "Перестань {pain} за {num} минут в день",
+    "{topic} — правда без красивых слов",
+    "Мой метод: как {result} за {num} дней (честно)",
+    "Почему {topic} — не то, что ты думаешь",
+    "{num} ошибок, из-за которых ты застрял в {pain}",
+  ];
+  let t = lang==='ru'?ru:base_en.slice();
+  if(lang!=='ru' && power>=4) t = t.concat(extras);
+  return t;
+}
+function makeTitles(topic, kws, power=3, n=10, lang='en'){
+  const tpls = titleTemplates(power, lang);
+  const seed = {
+    topic: topic||'Your Topic',
+    num: [5,7,8,10,12][Math.floor(Math.random()*5)],
+    pain: kws[0]||'struggle',
+    result: ["results","clarity","focus","sales","growth"][Math.floor(Math.random()*5)]
+  };
+  const out=[];
+  for(let i=0;i<n*3;i++){
+    const tpl=tpls[Math.floor(Math.random()*tpls.length)];
+    let txt = tpl.replace('{topic}',seed.topic).replace('{num}',seed.num)
+                 .replace('{pain}',seed.pain).replace('{result}',seed.result).replace('{goal}','цели');
+    if(txt.length<=85 && !out.includes(txt)) out.push(txt);
+    if(out.length>=n) break;
+  }
+  return out;
+}
+function makeDescription(topic,kws,brand='',lang='en',length='long'){
+  let hook,value,cta;
+  if(lang==='ru'){
+    hook = `${topic} — без воды и мифов. Честно, просто и по делу.`;
+    value = `В видео — практичные шаги, понятные примеры и работающие стратегии.`;
+    cta = `Если было полезно — поставьте лайк и подпишитесь.`;
+  } else {
+    hook = `${topic} without fluff or myths. Honest, simple, and practical.`;
+    value = `Inside: actionable steps, clear examples, and strategies that actually work.`;
+    cta = `If this helped, like and subscribe.`;
+  }
+  const core = kws.slice(0,12).join(', ');
+  let txt = `${hook} ${value} Keywords: ${core}. ${cta}`;
+  const sizes = {short:[600,900],medium:[900,1200],long:[1200,1600]};
+  const [lo,hi] = sizes[length]||sizes.long;
+  while(txt.length<lo){ txt += ' ' + ((txt.length%2===0)?hook:value); }
+  return txt.slice(0,hi);
+}
+let LAST = null;
+function generate(){
+  const topic = document.getElementById('topic').value.trim();
+  const transcript = document.getElementById('transcript').value.trim();
+  const lang = document.getElementById('lang').value;
+  const brand = document.getElementById('brand').value.trim();
+  const power = +document.getElementById('power').value;
+  const n = +document.getElementById('n').value;
+  const length = document.getElementById('length').value;
+  if(!topic && !transcript){ alert('Enter topic OR paste transcript'); return; }
+  const kws = keywordCandidates(topic+' '+transcript,lang,40);
+  const titles = makeTitles(topic||'Your Topic',kws,power,n,lang);
+  const desc = makeDescription(topic||'Your Topic',kws,brand,lang,length);
+  const tags = [...new Set(kws.slice(0,30))].join(', ');
+  LAST = {timestamp:new Date().toISOString(), topic, titles, description:desc, tags, keywords:kws.slice(0,40)};
+  document.getElementById('titles').textContent = '== TITLES ==\n' + titles.join('\n');
+  document.getElementById('desc').textContent = '== DESCRIPTION ==\n' + desc + '\n\n== TAGS ==\n' + tags;
+}
+function download(filename, content, type='text/plain'){
+  const a=document.createElement('a');
+  const blob = new Blob([content], {type});
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+function downloadTxt(){
+  if(!LAST){ alert('Generate first'); return; }
+  const t = '== TITLES ==\n'+LAST.titles.join('\n')+'\n\n== DESCRIPTION ==\n'+LAST.description+'\n\n== TAGS ==\n'+LAST.tags;
+  const stamp = new Date().toISOString().replaceAll(':','').slice(0,15);
+  download('yt_seo_'+stamp+'.txt', t, 'text/plain');
+}
+function downloadJson(){
+  if(!LAST){ alert('Generate first'); return; }
+  const stamp = new Date().toISOString().replaceAll(':','').slice(0,15);
+  download('yt_seo_'+stamp+'.json', JSON.stringify(LAST,null,2), 'application/json');
+}
+function clearAll(){
+  ['topic','brand','transcript'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('titles').textContent='';
+  document.getElementById('desc').textContent='';
+  LAST=null;
+}
+</script>
+</body>
+</html>
